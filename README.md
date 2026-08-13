@@ -2,6 +2,8 @@
 
 Real-time Unified Neural Entity
 
+Personal AI Voice Assistant
+
 # Milestones
 
 - local STT and TTS

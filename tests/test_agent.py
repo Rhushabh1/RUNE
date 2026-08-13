@@ -14,6 +14,7 @@ async def main():
 			break
 		if not question:
 			continue
+			
 		response = await ask_agent(question)
 		print(f"\nRUNE: {response}")
 

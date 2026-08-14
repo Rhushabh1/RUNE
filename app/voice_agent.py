@@ -1,9 +1,10 @@
 import asyncio
 
 from app.agent import ask_agent
-from app.microphone import record_audio
 from app.transcription import SpeechInput
 from app.speech import SpeechOutput
+# from app.microphone import record_audio
+from app.voice_activity import record_utterance
 
 
 async def main():
@@ -23,7 +24,10 @@ async def main():
 			break
 
 		# (1) capture audio
-		audio = record_audio(duration = 5)
+		# audio = record_audio(duration = 5)
+		audio = record_utterance()
+		if len(audio) == 0:
+			continue
 
 		# (2) convert STT
 		question = speech_input.transcribe(audio)

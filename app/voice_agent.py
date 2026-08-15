@@ -7,6 +7,9 @@ from app.speech import SpeechOutput
 from app.voice_activity import record_utterance
 
 
+SESSION_ID = "RUNE_voice_session"
+
+
 async def main():
 	print("Initialising RUNE voice agent...")
 
@@ -38,7 +41,7 @@ async def main():
 
 		# (3) generate agent response
 		try:
-			answer = await ask_agent(question)
+			answer = await ask_agent(question, session_id = SESSION_ID)
 		except Exception as error:
 			print(f"RUNE error: {error}")
 			continue

@@ -12,8 +12,7 @@ Personal AI Voice Assistant
 
 # Current Limitations
 
-- manual enter key for audio input
-- whisper transcription
-- sequential processing: STT -> LLM -> TTS
-- pyttsx3 playback - no interruption or barge-in
-- basic transformer LLM
+- no streaming audio playback
+- no true barge-in
+- no streaming coherent pipeline
+- failed tool calling

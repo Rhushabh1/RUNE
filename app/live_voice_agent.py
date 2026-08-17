@@ -6,173 +6,260 @@ from app.tts import SpeechEngine
 from app.text_chunker import TextChunker 
 from app.live_listener import LiveListener
 from app.terminal_display import print_agent_text
+from app.conversation import (ConvState, ConversationController)
+from app.latency import TurnMetrics
+from app.config import (LLM_TIMEOUT_SECONDS, 
+						TTS_SEGMENT_TIMEOUT_SECONDS,
+						MAX_EMPTY_TURNS,
+						MAX_AUDIO_QUEUE_SIZE)
 
 
 SESSION_ID = "local_voice_session"
 
 
-# CONSUMER
-async def playback_worker(queue, speaker):
-	while True:
-		# reads chunks from queue -> synthesizes speech -> plays it
-		text = await queue.get()
-		try:
-			# sneaky way to send termination signal
-			if text is None:
-				return 
+class VoiceAgentRuntime:
+	def __init__(self):
+		self.speaker = SpeechEngine()
+		self.listener = LiveListener()
 
-			# print(f"\n[TTS] Speaking: {text}")
+		self.controller = ConversationController()
+		self.metrics = TurnMetrics()
 
-			# piper synthesis and audio playback are blocking in nature
-			# hence kept them off the event loop
-			await asyncio.to_thread(speaker.speak, text)
+		self.empty_turns = 0
 
-		finally:
-			queue.task_done()
+		self.response_task = None
+		self.listener_task = None
 
 
-async def generation_worker(message, queue):
-	# to avoid excessive TTS calls & processing overhead, awkward pauses, unnatural speech
-	chunker = TextChunker(max_chars = 180)
-	response_text = ""
+	# CONSUMER
+	async def playback_worker(self, queue):
+		while True:
+			# reads chunks from queue -> synthesizes speech -> plays it
+			text = await queue.get()
+			try:
+				# sneaky way to send termination signal
+				if text is None:
+					return 
 
-	# yields generated token as it gets available
-	async for token in stream_ask_agent(message, session_id = SESSION_ID):
-		# sys.stdout.write(token)
-		# sys.stdout.flush()
+				if self.controller.state == ConvState.THINKING:
+					self.controller.transition(ConvState.SPEAKING)
 
-		response_text += token
-		print_agent_text(response_text)
+				self.metrics.audio_started()
 
-		# if a chunk gets complete, add it to the async queue
-		completed_chunks = chunker.feed(token)
-		for chunk in completed_chunks:
-			# backpressure -> suspends until space is available
+				# print(f"\n[TTS] Speaking: {text}")
+
+				# piper synthesis and audio playback are blocking in nature
+				# hence kept them off the event loop
+				await asyncio.wait_for(asyncio.to_thread(self.speaker.speak, text),
+										timeout = TTS_SEGMENT_TIMEOUT_SECONDS)
+
+			finally:
+				queue.task_done()
+
+
+	async def generation_worker(self, message, queue):
+		# to avoid excessive TTS calls & processing overhead, awkward pauses, unnatural speech
+		chunker = TextChunker(max_chars = 180)
+		response_text = ""
+
+		async with asyncio.timeout(LLM_TIMEOUT_SECONDS):
+			# yields generated token as it gets available
+			async for token in stream_ask_agent(message, session_id = SESSION_ID):
+				# sys.stdout.write(token)
+				# sys.stdout.flush()
+
+				self.metrics.token_received()
+
+				response_text += token
+				print_agent_text(response_text)
+
+				# if a chunk gets complete, add it to the async queue
+				completed_chunks = chunker.feed(token)
+				for chunk in completed_chunks:
+					# backpressure -> suspends until space is available
+					await queue.put(chunk)
+
+		# send any remaining text to TTS
+		for chunk in chunker.flush():
 			await queue.put(chunk)
 
-	# send any remaining text to TTS
-	for chunk in chunker.flush():
-		await queue.put(chunk)
-
-	await queue.put(None)
+		await queue.put(None)
 
 
-async def run_response(message, speaker):
-	speaker.reset_interrupt()
+	async def generate_and_speak(self, message):
+		self.metrics.start()
+		self.speaker.reset_interrupt()
 
-	# queue -> decouples text generation from audio generation and playback
-	# backpressure with maxsize -> producer waits until the queue is processed
-	# allows for LLM and speech to overlap
-	queue = asyncio.Queue(maxsize = 3)
+		# queue -> decouples text generation from audio generation and playback
+		# backpressure with maxsize -> producer waits until the queue is processed
+		# allows for LLM and speech to overlap
+		queue = asyncio.Queue(maxsize = MAX_AUDIO_QUEUE_SIZE)
 
-	producer = asyncio.create_task(generation_worker(message, queue))
-	# retrieving from queue involves waiting/blocking, so suspend this task asynchronously
-	consumer = asyncio.create_task(playback_worker(queue, speaker))
+		producer = asyncio.create_task(self.generation_worker(message, queue))
+		# retrieving from queue involves waiting/blocking, so suspend this task asynchronously
+		consumer = asyncio.create_task(self.playback_worker(queue))
 
-	try:
-		await asyncio.gather(producer, consumer)
+		try:
+			await asyncio.gather(producer, consumer)
 
-	except BaseException:
-		# stopping active playback before cancelling tasks
-		speaker.interrupt()
+		except BaseException:
+			# stopping active playback before cancelling tasks
+			self.speaker.interrupt()
 
-		producer.cancel()
-		consumer.cancel()
+			producer.cancel()
+			consumer.cancel()
 
-		await asyncio.gather(producer, consumer, return_exceptions = True)
-		raise
+			await asyncio.gather(producer, consumer, return_exceptions = True)
+			raise
+
+		finally:
+			self.metrics.finish()
+			self.metrics.report()
 
 
-async def listen_while_responding(listener, speaker, response_task):
-	def on_speech_start():
-		if speaker.is_playing:
+	def on_speech_start(self):
+		if self.speaker.is_playing:
 			print("\033[8;1H\033[2K[INTERRUPTION DETECTED]", flush = True)
-			speaker.interrupt()
+			self.speaker.interrupt()
 
-	listener_task = asyncio.create_task(asyncio.to_thread(listener.listen_for_utterance,
-														on_speech_start))
 
-	try:
-		while True:
-			done, pending = await asyncio.wait([response_task, listener_task],
-												return_when = asyncio.FIRST_COMPLETED)
+	async def listen(self):
+		self.controller.transition(ConvState.LISTENING)
+		return await asyncio.to_thread(self.listener.listen_for_utterance, 
+										self.on_speech_start)
 
-			if listener_task in done:
-				transcript = listener_task.result()
 
-				if transcript:
-					# complete user interruption has arrived
-					speaker.interrupt()
+	async def listen_during_response(self):
+		return await asyncio.to_thread(self.listener.listen_for_utterance,
+										self.on_speech_start)
 
-					if not response_task.done():
-						response_task.cancel()
 
-					await asyncio.gather(response_task,
-										return_exceptions = True)
-					return transcript
+	async def respond_to(self, message):
+		self.controller.transition(ConvState.THINKING)
 
-				# no speech detected during this listening window
-				# starting another listening window
-				if not response_task.done():
-					listener_task = asyncio.create_task(asyncio.to_thread(listener.listen_for_utterance,
-																		on_speech_start))
+		# print("\nRUNE: ", end = "", flush = True)
+
+		self.response_task = asyncio.create_task(self.generate_and_speak(message))
+
+		self.listener_task = asyncio.create_task(self.listen_during_response())
+
+		try:
+			while True:
+				done, pending = await asyncio.wait([self.response_task, self.listener_task],
+													return_when = asyncio.FIRST_COMPLETED)
+
+				# user completed a new utterance
+				if self.listener_task in done:
+					transcript = self.listener_task.result()
+
+					if transcript:
+						# complete user interruption has arrived
+						if not self.response_task.done():
+							self.controller.transition(ConvState.INTERRUPTED)
+
+							self.speaker.interrupt()
+							self.response_task.cancel()
+
+							await asyncio.gather(self.response_task,
+												return_exceptions = True)
+						
+						self.controller.transition(ConvState.LISTENING)
+
+						return transcript
+
+					# no speech detected during this listening window
+					# starting another listening window
+					if not self.response_task.done():
+						self.listener_task = asyncio.create_task(self.listen_during_response())
+						continue
+
+				if self.response_task in done:
+					await self.response_task
+
+					if self.controller.state in {ConvState.THINKING, ConvState.SPEAKING}:
+						self.controller.transition(ConvState.LISTENING)
+
+					if self.listener_task.done():
+						return self.listener_task.result()
+
 					continue
 
-			if response_task in done:
-				await response_task
+		finally:
+			if (self.listener_task and not self.listener_task.done()):
+				self.listener_task.cancel()
 
-				# response is finished and wait for next user turn
-				transcript = await listener_task
-				return transcript
-	finally:
-		if not listener_task.done():
-			listener_task.cancel()
-
-			await asyncio.gather(listener_task,
-								return_exceptions = True)
+				await asyncio.gather(self.listener_task,
+									return_exceptions = True)
 
 
-# asynchronous producer-consumer design for simultaneous LLM + TTS
-# PRODUCER
+	# asynchronous producer-consumer design for simultaneous LLM + TTS
+	# PRODUCER
+	async def run(self):
+		print("\033[2J\033[H", end = "", flush = True)
+		print("-----------RUNE-----------")
+		print("Say 'exit' or 'quit' to stop")
+		print("--------------------------")
+		
+		try:
+			# first user turn
+			print("\nListening...", flush = True)
+			message = await self.listen()
+
+			# endless conversation loop
+			while True:
+				if not message:
+					self.empty_turns += 1
+
+					# too many empty turns (diagnostic line)
+					if self.empty_turns >= MAX_EMPTY_TURNS:
+						self.empty_turns = 0
+
+					message = await self.listen()
+					continue
+
+				self.empty_turns = 0
+
+				# exit failsafe
+				if message.lower().strip() in ["exit", "exit.", "quit", "quit.", "stop assistant", "stop assistant."]:
+					break
+
+				# end = prevents newline, flush = pushes output to terminal
+				# print("\nRUNE: ", end = "", flush = True)
+
+				try:
+					message = await self.respond_to(message)
+
+				except asyncio.CancelledError:
+					raise
+
+				except Exception as e:
+					self.speaker.interrupt()
+
+					if (self.controller.state != ConvState.ERROR):
+						self.controller.transition(ConvState.ERROR)
+
+					self.controller.recover()
+
+					message = await self.listen()
+
+		except KeyboardInterrupt:
+			print("\n[EXIT] Shutting down...")
+
+		finally:
+			self.speaker.interrupt()
+
+			if self.response_task and not self.response_task.done():
+				self.response_task.cancel()
+
+				await asyncio.gather(self.response_task,
+									return_exceptions = True)
+
+			print("\n[EXIT] RUNE stopped")
+
+
 async def main():
-	speaker = SpeechEngine()
-	listener = LiveListener()
-
-	print("\033[2J\033[H", end = "", flush = True)
-	print("-----------RUNE-----------")
-	print("Say 'exit' or 'quit' to stop")
-	print("--------------------------")
-	
-	try:
-		# first user turn
-		print("\nListening...", flush = True)
-		message = await asyncio.to_thread(listener.listen_for_utterance)
-
-		# endless conversation loop
-		while True:
-			if not message:
-				message = await asyncio.to_thread(listener.listen_for_utterance)
-				continue
-
-			# exit failsafe
-			if message.lower().strip() in ["exit", "exit.", "quit", "quit.", "stop assistant", "stop assistant."]:
-				break
-
-			# end = prevents newline, flush = pushes output to terminal
-			# print("\nRUNE: ", end = "", flush = True)
-
-			response_task = asyncio.create_task(run_response(message, speaker))
-
-			# listen concurrently with LLM + playback
-			message = await listen_while_responding(listener, speaker, response_task)
-
-			# print("\n")
-
-	except KeyboardInterrupt:
-		print("\n[EXIT] Shutting down...")
-
-	finally:
-		speaker.interrupt()
+	runtime = VoiceAgentRuntime()
+	await runtime.run()
 
 
 if __name__ == "__main__":

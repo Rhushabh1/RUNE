@@ -1,7 +1,7 @@
 import asyncio
 
 from app.agent import ask_agent
-from app.transcription import SpeechInput
+from app.transcription import Transcriber
 from app.speech import SpeechOutput
 # from app.microphone import record_audio
 from app.voice_activity import record_utterance
@@ -14,7 +14,7 @@ async def main():
 	print("Initialising RUNE voice agent...")
 
 	# initialise all models and audio engines only once
-	speech_input = SpeechInput()
+	speech_input = Transcriber()
 	speech_output = SpeechOutput()
 
 	print("RUNE is ready")

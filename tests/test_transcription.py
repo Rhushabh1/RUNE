@@ -1,15 +1,15 @@
 from app.microphone import record_audio
-from app.transcription import SpeechInput
+from app.transcription import Transcriber
 
 
 def main():
-	speech_input = SpeechInput()
+	transcriber = Transcriber()
 
 	input("\nPress Enter when ready to record...")
 
 	audio = record_audio(duration = 5)
 
-	text = speech_input.transcribe(audio)
+	text = transcriber.transcribe(audio)
 
 	print(f"Recognised speech: {text}")
 

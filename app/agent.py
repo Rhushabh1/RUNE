@@ -176,6 +176,7 @@ class Agent:
 							"content": message
 							})
 
+			generation_thread = None
 			try:
 				# handle deterministic tool calling later
 				# prepare model inputs
@@ -236,7 +237,11 @@ class Agent:
 								"content": response
 								})
 
-			except Exception as e:
+			except BaseException:
+				# wait for background generation to finish before releasing lock
+				if generation_thread is not None and generation_thread.ident is not None:
+					await asyncio.shield(asyncio.to_thread(generation_thread.join))
+					
 				# restore conversation history as failsafe
 				history.pop()
 				raise

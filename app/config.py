@@ -1,4 +1,4 @@
-SAMPLE_RATE = 16000
+SAMPLE_RATE = 22050
 
 # max time allowed for an LLM response
 LLM_TIMEOUT_SECONDS = 120

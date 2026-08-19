@@ -2,7 +2,7 @@ import sounddevice as sd
 import numpy as np 
 
 
-SAMPLE_RATE = 16000
+SAMPLE_RATE = 22050
 CHANNELS = 1
 
 

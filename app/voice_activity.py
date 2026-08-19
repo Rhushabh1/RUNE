@@ -2,6 +2,7 @@ import time
 from collections import deque
 import numpy as np 
 import sounddevice as sd 
+# it supports only in multiples of 8000 (not 22050)
 import webrtcvad
 
 

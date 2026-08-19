@@ -1,6 +1,6 @@
 import asyncio
 
-from app.agent import ask_agent, agent
+from app.ollama_agent import ask_agent, agent
 
 
 async def test_session_isolation():

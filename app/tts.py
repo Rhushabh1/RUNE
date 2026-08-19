@@ -5,7 +5,7 @@ import sounddevice as sd
 from piper import PiperVoice
 
 
-MODEL_PATH = Path(__file__).resolve().parent.parent / "models" / "en_US-lessac-medium.onnx"
+MODEL_PATH = Path(__file__).resolve().parent.parent / "models" / "en_US-kusal-medium.onnx"
 
 
 # has streaming playback utility + true barge-in capability

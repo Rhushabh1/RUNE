@@ -1,7 +1,7 @@
 import asyncio
 import sys
 
-from app.agent import stream_ask_agent
+from app.ollama_agent import stream_ask_agent
 from app.tts import SpeechEngine
 from app.text_chunker import TextChunker 
 from app.live_listener import LiveListener

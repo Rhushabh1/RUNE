@@ -130,7 +130,7 @@ class LiveListener:
 
 					if (partial_text and partial_text != last_partial_text):
 						# print("\rYou: " + partial_text + "\033[K", end = "", flush = True)
-						print_user_text(partial_text)
+						# print_user_text(partial_text)
 
 						last_partial_text = partial_text
 

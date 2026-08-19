@@ -4,7 +4,7 @@ import re
 # accumulate text until a sentence or long phrase is formed
 # easy to send chunked LLM tokens to piper for natural speech fragments
 class TextChunker:
-	def __init__(self, max_chars = 180):
+	def __init__(self, max_chars = 100):
 		self.buffer = ""
 		self.max_chars = max_chars
 

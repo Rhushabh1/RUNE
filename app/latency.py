@@ -11,6 +11,9 @@ class TurnMetrics:
 
 	def start(self):
 		self.turn_started = perf_counter()
+		self.first_token = None
+		self.first_audio = None
+		self.turn_finished = None
 
 
 	def token_received(self):

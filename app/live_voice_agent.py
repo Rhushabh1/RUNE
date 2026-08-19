@@ -59,8 +59,10 @@ class VoiceAgentRuntime:
 
 	async def generation_worker(self, message, queue):
 		# to avoid excessive TTS calls & processing overhead, awkward pauses, unnatural speech
-		chunker = TextChunker(max_chars = 180)
+		chunker = TextChunker(max_chars = 100)
 		response_text = ""
+
+		print("\nRUNE: ", end = "", flush = True)
 
 		async with asyncio.timeout(LLM_TIMEOUT_SECONDS):
 			# yields generated token as it gets available
@@ -71,13 +73,15 @@ class VoiceAgentRuntime:
 				self.metrics.token_received()
 
 				response_text += token
-				print_agent_text(response_text)
+				print_agent_text(token)
 
 				# if a chunk gets complete, add it to the async queue
 				completed_chunks = chunker.feed(token)
 				for chunk in completed_chunks:
 					# backpressure -> suspends until space is available
 					await queue.put(chunk)
+
+		print()
 
 		# send any remaining text to TTS
 		for chunk in chunker.flush():
@@ -119,7 +123,7 @@ class VoiceAgentRuntime:
 
 	def on_speech_start(self):
 		if self.speaker.is_playing:
-			print("\033[8;1H\033[2K[INTERRUPTION DETECTED]", flush = True)
+			print("\n[INTERRUPTION DETECTED]", flush = True)
 			self.speaker.interrupt()
 
 

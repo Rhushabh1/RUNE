@@ -9,3 +9,8 @@ numpy==2.5.3
 webrtcvad-wheels==2.0.14.post1
 
 piper-tts==1.8.0
+
+httpx==0.28.1
+httpx2==2.13.1
+pytest==9.1.1
+pytest-asyncio==1.4.1

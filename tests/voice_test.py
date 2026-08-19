@@ -1,6 +1,6 @@
 import asyncio
 
-from app.agent import ask_agent
+from app.ollama_agent import stream_ask_agent
 from app.speech import SpeechOutput
 
 
@@ -17,8 +17,8 @@ async def main():
 		if not question:
 			continue
 			
-		response = await ask_agent(question)
-		print(f"\nRUNE: {response}")
+		response = await stream_ask_agent(question)
+		# print(f"\nRUNE: {response}")
 		
 		# keeping speech playback on the main thread
 		speaker.speak(response)

@@ -1,6 +1,6 @@
 import asyncio
 
-from app.agent import ask_agent
+from app.ollama_agent import stream_ask_agent
 from app.transcription import Transcriber
 from app.speech import SpeechOutput
 # from app.microphone import record_audio
@@ -22,7 +22,7 @@ async def main():
 	while True:
 		command = input("\nPress Enter to speak or type 'q' to quit: ").strip().lower()
 
-		if command == "q":
+		if command in ["q", "exit", "quit"]:
 			print("Shutting down RUNE...")
 			break
 
@@ -41,11 +41,11 @@ async def main():
 
 		# (3) generate agent response
 		try:
-			answer = await ask_agent(question, session_id = SESSION_ID)
+			answer = await stream_ask_agent(question, session_id = SESSION_ID)
 		except Exception as error:
 			print(f"RUNE error: {error}")
 			continue
-		print(f"\nRUNE: {answer}")
+		# print(f"\nRUNE: {answer}")
 
 		# (4) convert TTS
 		speech_output.speak(answer)

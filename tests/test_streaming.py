@@ -2,7 +2,7 @@ import asyncio
 import sys
 import time
 
-from app.agent import stream_ask_agent
+from app.ollama_agent import stream_ask_agent
 
 
 async def main():

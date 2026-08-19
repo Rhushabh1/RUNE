@@ -3,6 +3,9 @@ import httpx
 import json
 from typing import AsyncIterator
 
+from app.tool_schemas import TOOLS 
+from app.tool_executor import execute_tool
+
 
 # ollama configurations
 # ollama's default server port
@@ -18,6 +21,14 @@ Instructions:
 - Do not repeat previous answers unless relevant.
 - If you do not know something, say so honestly.
 - Keep responses concise and conversational.
+
+Tool usage:
+- You MUST call get_current_time when asked for the current time.
+- You MUST call get_current_date when asked for today's date.
+- You MUST call search_knowledge when asked to search or retrieve information from the knowledge base.
+- Never invent current dates, times, or knowledge base search results.
+- After receiving a tool result, use that result to formulate your answer.
+- Do not display tool-call syntax, XML, JSON, or internal tool instructions to the user.
 """
 
 
@@ -48,30 +59,62 @@ class OllamaAgent:
 		try:
 			# create http client to send/receive requests
 			async with httpx.AsyncClient(timeout = 120.0) as client:
-				# send http POST request
-				response = await client.post(f"{OLLAMA_URL}/api/chat",
-											json = {
-													"model": MODEL,
-													"messages": history,
-													"think": False,
-													"stream": False
-													})
+				# only 3 tool calls allowed for now
+				for _ in range(3):
 
-				# check if request succeeded -> return status code
-				response.raise_for_status()
+					# send http POST request
+					response = await client.post(f"{OLLAMA_URL}/api/chat",
+												json = {
+														"model": MODEL,
+														"messages": history,
+														"tools": TOOLS,
+														"think": False,
+														"stream": False
+														})
 
-				# unparse json via python dictionary
-				answer = response.json()["message"]["content"].strip()
-				# print(f"\nRUNE: {answer}", flush = True)
+					# check if request succeeded -> return status code
+					response.raise_for_status()
+
+					# unparse json via python dictionary
+					msg = response.json()["message"]
+
+					# print("\n[OLLAMA] ", json.dumps(msg, indent=2))
+					# print("\nTool calls: ", msg.get("tool_calls"))
+					# print(f"\nRUNE: {answer}", flush = True)
+					history.append(msg)
+
+					tool_calls = msg.get("tool_calls", [])
+					if not tool_calls:
+						answer = msg.get("content", "").strip()
+						return answer
+
+					for tool_call in tool_calls:
+						function_data = tool_call["function"]
+						tool_name = function_data["name"]
+						args = function_data.get("arguments", {})
+
+						if isinstance(args, str):
+							args = json.loads(args)
+
+						result = execute_tool(tool_name, args)
+						# print("Result: ", result)
+
+						history.append({
+										"role": "tool",
+										"tool_name": tool_name,
+										"content": result
+										})
+
+				raise RuntimeError("max tool execution limit exceeded")
 				
-			history.append({
-							"role": "assistant",
-							"content": answer
-							})
-			return answer
+			# history.append({
+			# 				"role": "assistant",
+			# 				"content": answer
+			# 				})
+			# return answer
 
 		except Exception:
-			history.pop()
+			del history[-1:]
 			raise
 
 

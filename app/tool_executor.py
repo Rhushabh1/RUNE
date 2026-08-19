@@ -32,7 +32,7 @@ def execute_tool(name, arguments):
 				raise ValueError("This tool accepts no arguments")
 			result = function()
 
-		return json.dumps(result)
+		return json.dumps(result, ensure_ascii = False)
 
 	except Exception as e:
 		return json.dumps({

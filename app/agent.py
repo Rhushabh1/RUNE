@@ -8,9 +8,6 @@ import re
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM, TextIteratorStreamer
 
-from app.tool_schemas import TOOL_PROMPT
-from app.tool_executor import execute_tool
-
 
 # decide which model to load
 # temporary arrangement before replaced by Ollama
@@ -91,7 +88,7 @@ class Agent:
 		if session_id not in self.sessions:
 			self.sessions[session_id] = [{
 										"role": "system",
-										"content": SYSTEM_PROMPT + "\n\n" + TOOL_PROMPT
+										"content": SYSTEM_PROMPT
 										}]
 		return self.sessions[session_id]
 

@@ -12,23 +12,55 @@ from app.tool_executor import execute_tool
 OLLAMA_URL = "http://localhost:11434"
 MODEL = "qwen3:0.6b"
 SYSTEM_PROMPT = """ 
-You are RUNE, a personal AI voice assistant of the user.
+You are RUNE, a personal AI voice assistant.
 
-Instructions:
+GENERAL INSTRUCTIONS:
 - Answer the user's latest question directly.
-- Carefully consider the entire conversation history.
-- Remember facts explicitly provided by the user during this conversation.
-- Do not repeat previous answers unless relevant.
-- If you do not know something, say so honestly.
-- Keep responses concise and conversational.
+- Consider the entire conversation history.
+- Be concise and conversational.
+- Never claim to have performed an operation unless it succeeded.
 
-Tool usage:
-- You MUST call get_current_time when asked for the current time.
-- You MUST call get_current_date when asked for today's date.
-- You MUST call search_knowledge when asked to search or retrieve information from the knowledge base.
-- Never invent current dates, times, or knowledge base search results.
-- After receiving a tool result, use that result to formulate your answer.
-- Do not display tool-call syntax, XML, JSON, or internal tool instructions to the user.
+TOOL USAGE RULES:
+
+1. CURRENT TIME AND DATE:
+- If asked for the current time, call get_current_time.
+- If asked for today's date, call get_current_date.
+
+2. KNOWLEDGE BASE:
+- If asked to search, retrieve, or find information
+  in the knowledge base, call search_knowledge.
+- Never invent search results.
+
+3. LONG-TERM MEMORY:
+- If the user explicitly asks you to remember,
+  save, store, or retain information, call remember_fact.
+- Extract the actual information to be remembered.
+- Select an appropriate category.
+- Do not ask for confirmation when the user has
+  already explicitly requested saving.
+- If the user provides additional information in
+  response to an ongoing memory-saving request,
+  include that information in the memory.
+- If the user asks what you remember, what you
+  have saved, or asks to retrieve a particular
+  memory, call search_memories.
+- If the user asks to forget or delete a memory,
+  first call search_memories to identify the
+  relevant memory and its ID.
+- Then call forget_memory using that ID.
+
+4. TOOL EXECUTION:
+- Never pretend a tool was executed.
+- Wait for the actual tool result.
+- Use the tool result to formulate your response.
+- If a tool fails, explain that it failed.
+- Never invent memory IDs or tool results.
+
+5. CONVERSATION:
+- Do not unnecessarily repeat previous answers.
+- Use saved memories when relevant.
+- Do not automatically save every personal detail
+  mentioned during ordinary conversation.
 """
 
 
@@ -80,8 +112,18 @@ class OllamaAgent:
 					# unparse json via python dictionary
 					msg = response.json()["message"]
 
-					# print("\n[OLLAMA] ", json.dumps(msg, indent=2))
-					# print("\nTool calls: ", msg.get("tool_calls"))
+					# print("\n[LLM] Message:", json.dumps(
+					# 	msg,
+					# 	indent=2,
+					# 	ensure_ascii=False
+					# ))
+
+					# print("\n[LLM] Tool calls:", json.dumps(
+					# 	msg.get("tool_calls", []),
+					# 	indent=2,
+					# 	ensure_ascii=False
+					# ))
+
 					# print(f"\nRUNE: {answer}", flush = True)
 					history.append(msg)
 
@@ -98,8 +140,10 @@ class OllamaAgent:
 						if isinstance(args, str):
 							args = json.loads(args)
 
+						# print(f"\n[TOOL] Executing: {tool_name}")
+						# print(f"[TOOL] Arguments: {args}")
 						result = execute_tool(tool_name, args)
-						# print("Result: ", result)
+						# print(f"\n[TOOL] Result: {result}")
 
 						history.append({
 										"role": "tool",
@@ -167,6 +211,18 @@ class OllamaAgent:
 							# thinking = msg.get("thinking", "")
 							content = msg.get("content", "")
 
+							# print("\n[LLM] Message:", json.dumps(
+							# 	msg,
+							# 	indent=2,
+							# 	ensure_ascii=False
+							# ))
+
+							# print("\n[LLM] Tool calls:", json.dumps(
+							# 	msg.get("tool_calls", []),
+							# 	indent=2,
+							# 	ensure_ascii=False
+							# ))
+
 							# # displaying thinking separately from final response
 							# if thinking:
 							# 	if not thinking_started:
@@ -192,8 +248,6 @@ class OllamaAgent:
 
 							if chunk.get("done"):
 								break
-
-					# print()
 
 					complete_response = "".join(answer).strip()
 
@@ -222,7 +276,10 @@ class OllamaAgent:
 						if isinstance(args, str):
 							args = json.loads(args)
 
+						# print(f"\n[TOOL] Executing: {tool_name}")
+						# print(f"[TOOL] Arguments: {args}")
 						result = execute_tool(tool_name, args)
+						# print(f"\n[TOOL] Result: {result}")
 
 						# send tool result back to ollama
 						history.append({

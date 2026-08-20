@@ -3,8 +3,10 @@ __pycache__/
 .pytest_cache/
 data/
 models/
-knowledge/
+reports/
+benchmarks/
 .env
 .DS_Store
+*.py[cod]
 *.onnx
 *.log

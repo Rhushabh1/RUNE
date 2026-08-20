@@ -10,7 +10,7 @@ def main():
 	print("Saved memory: ", memory_id)
 
 	# search
-	results = store.search("this")
+	results = store.search("badminton")
 	print("\nSearch results: ")
 	for item in results:
 		print(item)

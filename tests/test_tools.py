@@ -7,10 +7,12 @@ async def main():
 	session = "test_tool"
 
 	questions = [
-				"what time is it right now?", 
-				"what is today's date?",
-				"search my knowledge base for Google",
-				"explain what you found",
+				"My name is Rushab. Remember this.",
+		        "I enjoy badminton, swimming, table tennis, chess and art. Save these interests.",
+		        "I play badminton on wooden courts and I am a doubles badminton champion.",
+		        "What have you saved about me?",
+		        "Search your memories for my sports interests.",
+		        "What is my badminton achievement?"
 				]
 
 	for question in questions:

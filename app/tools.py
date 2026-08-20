@@ -1,6 +1,8 @@
 from datetime import datetime
 from pathlib import Path 
 
+from app.memory_store import memory_store
+
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
@@ -63,9 +65,50 @@ def search_knowledge(query):
 				}
 
 
+# to save memory to the sqlite3 DB
+def remember_fact(category, content):
+	print("[MEMORY] DB:", memory_store.db_path)
+	# fetch memory ID for the memory, as proof of save
+	memory_id = memory_store.save(category = category,
+									content = content)
+
+	print("[MEMORY] SAVED:", memory_id)
+	return {
+			"success": True,
+			"memory_id": memory_id,
+			"message": "Memory saved"
+			}
+
+
+# to search for specific query in memories DB
+def search_memories(query = None):
+	print("[MEMORY] SEARCH QUERY:", query)
+	print("[MEMORY] DB:", memory_store.db_path)
+	results = memory_store.search(query = query,
+									limit = 10)
+	
+	print("[MEMORY] RESULTS:", results)
+	return {
+			"success": True,
+			"memories": results
+			}
+
+
+# to delete specific memory from the memory DB
+def forget_memory(memory_id):
+	deleted = memory_store.delete(memory_id = memory_id)
+	return {
+			"success": deleted,
+			"message": "Memory deleted" if deleted else "Memory not found"
+			}
+
+
 # main tool registry for LLM
 TOOL_REGISTRY = {
 	"get_current_time": get_current_time,
 	"get_current_date": get_current_date,
-	"search_knowledge": search_knowledge
+	"search_knowledge": search_knowledge,
+	"remember_fact": remember_fact,
+	"search_memories": search_memories,
+	"forget_memory": forget_memory
 }

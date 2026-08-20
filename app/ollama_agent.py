@@ -5,6 +5,7 @@ from typing import AsyncIterator
 
 from app.tool_schemas import TOOLS 
 from app.tool_executor import execute_tool
+from app.conversation_store import conversation_store
 
 
 # ollama configurations
@@ -69,15 +70,29 @@ class OllamaAgent:
 	def __init__(self):
 		# each sessioin should have independent history
 		self.sessions = {}
+		# storing summaries of each chat session
+		self.summaries = {}
 
 
 	def get_history(self, session_id):
 		if session_id not in self.sessions:
+			# load old messages of this session_id
+			summary, messages = conversation_store.load(session_id)
+
+			system_prompt = SYSTEM_PROMPT
+			if summary:
+				print("summary: ", summary)
+				system_prompt += "\n\nSUMMARY OF EARLIER CONVERSATION:\n" + summary
+
 			# setting up the first system prompt in history
 			self.sessions[session_id] = [{
 										"role": "system",
-										"content": SYSTEM_PROMPT
-										}]
+										"content": system_prompt
+										}, 
+										*messages]
+
+			self.summaries[session_id] = summary
+
 		return self.sessions[session_id]
 
 
@@ -130,6 +145,10 @@ class OllamaAgent:
 					tool_calls = msg.get("tool_calls", [])
 					if not tool_calls:
 						answer = msg.get("content", "").strip()
+						
+						# successful completion point -> save summary where history trimmed
+						await self._compact_and_save(session_id, history)
+						
 						return answer
 
 					for tool_call in tool_calls:
@@ -256,6 +275,10 @@ class OllamaAgent:
 										"role": "assistant",
 										"content": complete_response
 										})
+
+						# successful completion point -> save summary where history trimmed
+						await self._compact_and_save(session_id, history)
+						
 						return
 
 					# preserve assistant's tool call message in history
@@ -297,6 +320,126 @@ class OllamaAgent:
 
 	def clear_session(self, session_id):
 		self.sessions.pop(session_id, None)
+		self.summaries.pop(session_id, None)
+
+		# delete it from chat history DB as well
+		conversation_store.delete(session_id)
+
+
+	# new method to summarize the chat history till now
+	async def _summarize_messages(self, previous_summary, old_messages):
+		transcript = []
+
+		for message in old_messages:
+			role = message.get("role", "unknown")
+			content = message.get("content", "")
+
+			# add chat history to transcript list
+			if content:
+				transcript.append(f"{role.upper()}: {content}")
+
+			# preserving information about tool calls in the summary input
+			tool_calls = message.get("tool_calls")
+			if tool_calls:
+				transcript.append(f"TOOL CALLS: {json.dumps(tool_calls, ensure_ascii = False)}")
+
+			tool_name = message.get("tool_name")
+			if tool_name:
+				transcript.append(f"TOOL NAME: {tool_name}")
+
+		# final transcript used to summarize chat session
+		conversation_text = "\n".join(transcript)
+
+		prompt = f"""
+Previous Summary:
+{previous_summary or "No previous summary"}
+
+Earlier Conversation:
+{conversation_text}
+
+Create an updated compact summary of this conversation.
+
+Preserve:
+- User goals and ongoing projects.
+- Explicit preferences and constraints.
+- Important technical decisions and configurations.
+- Commitments, plans and unresolved tasks.
+- Names, dates and numbers that matter.
+
+Do not invent facts or infer personal details.
+Remove repetition and conversational fillers.
+Write in concise, factual paragraphs.
+"""
+
+		# connect to ollama to summarise the chat session
+		async with httpx.AsyncClient(timeout = 120) as client:
+			response = await client.post(f"{OLLAMA_URL}/api/chat",
+										json = {
+												"model": MODEL,
+												"messages": [{
+															"role": "system",
+															"content": "You summarize conversation history accurately. Never invent information."
+															},
+															{
+															"role": "user",
+															"content": prompt
+															}],
+												"stream": False
+												})
+
+			response.raise_for_status()
+
+			data = response.json()
+
+		# return the ollama summary response as new_summary
+		return data["message"]["content"].strip()
+
+
+	# compacts the chat till now and adds summary to it
+	async def _compact_and_save(self, session_id, history):
+		# first entry is system prompt, then everything after it is conversation history
+		# including any tool calls and tool results
+		messages = history[1:]
+
+		# if any
+		previous_summary = self.summaries.get(session_id, "")
+
+		# summarize only after the conversation exceeds 8 user turns
+		user_indices = [index for index, message in enumerate(messages) if message.get("role") == "user"]
+
+		if len(user_indices) > 8:
+			# keep last/latest 4 user turns intact
+			cut_index = user_indices[-4]
+
+			old_messages = messages[:cut_index]
+			recent_messages = messages[cut_index:]
+
+			try:
+				new_summary = await self._summarize_messages(previous_summary, old_messages)
+
+				if new_summary:
+					# swap the old summary and old messages for recent ones
+					previous_summary = new_summary
+					messages = recent_messages
+
+					self.summaries[session_id] = previous_summary
+
+					# system prompt gets replaced by new summary till now
+					print("prev summary: ", previous_summary)
+					history[0]["content"] = SYSTEM_PROMPT + "\n\nSUMMARY OF EARLIER CONVERSATION:\n" + previous_summary
+
+					# replace in-memory history with compacted version
+					history[:] = [history[0], *messages]
+
+			except Exception as e:
+				# keep complete history if summarization fails
+				print(f"\n[MEMORY] Summarization failed: {str(e)}")
+
+		# persist even if summarization was unnecessary of unsuccessful
+		conversation_store.save(session_id,
+								previous_summary,
+								history[1:])
+
 
 
 # shared instance across application

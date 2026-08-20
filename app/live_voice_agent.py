@@ -14,7 +14,7 @@ from app.config import (LLM_TIMEOUT_SECONDS,
 						MAX_AUDIO_QUEUE_SIZE)
 
 
-SESSION_ID = "local_voice_session"
+SESSION_ID = "live_voice_session"
 
 
 class VoiceAgentRuntime:

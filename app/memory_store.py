@@ -1,3 +1,4 @@
+import re
 import sqlite3
 from contextlib import contextmanager
 from pathlib import Path 
@@ -99,39 +100,99 @@ class MemoryStore:
 			return cursor.lastrowid
 
 
-	# search memory by content/category
+	# # search memory by content/category -> simple DB search
+	# def search(self, query = None, limit = DEFAULT_SEARCH_LIMIT, category = None):
+	# 	if not 1 <= limit <= MAX_SEARCH_LIMIT:
+	# 		raise ValueError(f"limit must be between 1 and {MAX_SEARCH_LIMIT}")
+
+	# 	conditions = []
+	# 	params = []
+
+	# 	if query is not None:
+	# 		query = query.strip()
+	# 		conditions.append("content LIKE ?")
+	# 		params.append(f"%{query}%")
+
+	# 	if category is not None:
+	# 		category = category.strip().lower()
+	# 		conditions.append("category = ?")
+	# 		params.append(category)
+
+	# 	sql = "SELECT * FROM memory"
+	# 	if conditions:
+	# 		sql += " WHERE " + " AND ".join(conditions)
+	# 	sql += """
+	# 			ORDER BY updated_at DESC, id DESC
+	# 			LIMIT ?
+	# 			"""
+
+	# 	params.append(limit)
+
+
+	# 	with self.connect() as conn:
+	# 		rows = conn.execute(sql, params).fetchall()
+
+	# 	return [dict(row) for row in rows]
+
+
+	# searching my lexical retrieval method
 	def search(self, query = None, limit = DEFAULT_SEARCH_LIMIT, category = None):
 		if not 1 <= limit <= MAX_SEARCH_LIMIT:
 			raise ValueError(f"limit must be between 1 and {MAX_SEARCH_LIMIT}")
 
-		conditions = []
-		params = []
-
-		if query is not None:
-			query = query.strip()
-			conditions.append("content LIKE ?")
-			params.append(f"%{query}%")
-
-		if category is not None:
-			category = category.strip().lower()
-			conditions.append("category = ?")
-			params.append(category)
-
-		sql = "SELECT * FROM memory"
-		if conditions:
-			sql += " WHERE " + " AND ".join(conditions)
-		sql += """
-				ORDER BY updated_at DESC, id DESC
-				LIMIT ?
-				"""
-
-		params.append(limit)
-
-
 		with self.connect() as conn:
-			rows = conn.execute(sql, params).fetchall()
+			# query all the rows of the memories table
+			rows = conn.execute("""
+								SELECT *
+								FROM memory
+								ORDER BY updated_at DESC
+								LIMIT 500
+								""").fetchall()
 
-		return [dict(row) for row in rows]
+		memories = [dict(row) for row in rows]
+
+		# return top limit memories if no query received
+		if not query or not query.strip():
+			return memories[:limit]
+
+		query_tokens = {token for token in re.findall(r"[a-zA-Z0-9_]+", query.lower())
+						if len(token) > 1}
+
+		if not query_tokens:
+			return []
+
+		scored = []
+
+		for memory in memories:
+			content = memory["content"].lower()
+			category = memory["category"].lower()
+			combined = f"{category} {content}"
+
+			combined_tokens = set(re.findall(r"[a-zA-Z0-9_]+", combined))
+			content_tokens = set(re.findall(r"[a-zA-Z0-9_]+", content))
+			category_tokens = set(re.findall(r"[a-zA-Z0-9_]+", category))
+
+			# reject if no token matches at all
+			matched_tokens = query_tokens.intersection(combined_tokens)
+			if not matched_tokens:
+				continue
+
+			# score matches in content more heavily than category matches
+			content_matches = query_tokens.intersection(content_tokens)
+			category_matches = query_tokens.intersection(category_tokens)
+			
+			# partial match with content is more rewarded than category
+			score = 2 * len(content_matches) + len(category_matches)
+			# full match is a bonus
+			if query.lower().strip() in content:
+				score += 5
+
+			memory["relevance_score"] = score 
+			scored.append(memory)
+
+		# select top limit scorers
+		scored.sort(key = lambda x: (x["relevance_score"], x["updated_at"]), reverse = True)
+		return scored[:limit]
 
 
 	# update an existing memory entry

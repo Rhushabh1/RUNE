@@ -13,3 +13,4 @@ Personal AI Voice Assistant
 # Current Limitations
 
 - failed tool calling
+- no RAG or embeddings model used for retrieval, its just simple lexial retrieval for now

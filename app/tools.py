@@ -2,6 +2,7 @@ from datetime import datetime
 from pathlib import Path 
 
 from app.memory_store import memory_store
+from app.rag import rag
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -72,6 +73,22 @@ def remember_fact(category, content):
 	memory_id = memory_store.save(category = category,
 									content = content)
 
+	# rag added
+	try:
+		rag.index_text(source_type = "memory",
+						source_id = str(memory_id),
+						title = category,
+						text = content,
+						metadata = {
+									"memory_id": memory_id,
+									"category": category
+									},
+						chunk_size = 500,
+						overlap = 60)
+	
+	except Exception as e:
+		print(f"\n[RAG] Memory indexing failed: {str(e)}")
+
 	print("[MEMORY] SAVED:", memory_id)
 	return {
 			"success": True,
@@ -97,6 +114,11 @@ def search_memories(query = None):
 # to delete specific memory from the memory DB
 def forget_memory(memory_id):
 	deleted = memory_store.delete(memory_id = memory_id)
+
+	# deleted from rag too
+	if deleted:
+		rag.delete_source("memory", str(memory_id))
+
 	return {
 			"success": deleted,
 			"message": "Memory deleted" if deleted else "Memory not found"

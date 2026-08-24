@@ -155,6 +155,7 @@ class MemoryStore:
 		if not query or not query.strip():
 			return memories[:limit]
 
+		# TODO - add stop words which add no meaning to tokens
 		query_tokens = {token for token in re.findall(r"[a-zA-Z0-9_]+", query.lower())
 						if len(token) > 1}
 
@@ -168,6 +169,7 @@ class MemoryStore:
 			category = memory["category"].lower()
 			combined = f"{category} {content}"
 
+			# simple tokenizer
 			combined_tokens = set(re.findall(r"[a-zA-Z0-9_]+", combined))
 			content_tokens = set(re.findall(r"[a-zA-Z0-9_]+", content))
 			category_tokens = set(re.findall(r"[a-zA-Z0-9_]+", category))
